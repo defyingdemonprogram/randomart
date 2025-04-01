@@ -27,12 +27,18 @@ Color gray_gradient(float x, float y) {
 	return (Color) { x, x, x };
 }
 
+Color cool(float x, float y) {
+	if (x*y > 0) return (Color){x, y, 1};
+	float r = fmodf(x + 1e-3, y + 1e-3);
+	return (Color) {r, r, r};
+}
+
 void render_pixels(Color (*f)(float x, float y)) {
 	for (size_t y = 0; y < HEIGHT; ++y) {
 		// Normalize the value between -1..1
 		float ny = (float)y/HEIGHT*2.0f - 1;
 		for (size_t x = 0; x < WIDTH; ++x) {
-			float nx = (float)y/WIDTH*2.0f - 1;
+			float nx = (float)x/WIDTH*2.0f - 1;
 			Color c = f(nx, ny);
 			// -1..1 => 0..2 => 0..255
 			size_t index = y*WIDTH + x;
@@ -45,7 +51,8 @@ void render_pixels(Color (*f)(float x, float y)) {
 }
 
 int main() {
-	render_pixels(gray_gradient);
+	// render_pixels(gray_gradient);
+	render_pixels(cool);
 	const char *output_path = "output.png";
 	if (!stbi_write_png(output_path, WIDTH, HEIGHT, 4, pixels, WIDTH*sizeof(RBGA32))) {
 		fprintf(stderr, "Could not save image %s", output_path);

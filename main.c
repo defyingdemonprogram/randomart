@@ -21,6 +21,7 @@ typedef enum {
     NK_RULE,
     NK_NUMBER,
     NK_BOOLEAN,
+    NK_SQRT,
     NK_ADD,
     NK_MULT,
     NK_MOD,
@@ -31,13 +32,14 @@ typedef enum {
     COUNT_NK,
 } Node_Kind;
 
-static_assert(COUNT_NK == 12, "Amount of nodes have changed");
+static_assert(COUNT_NK == 13, "Amount of nodes have changed");
 const char *nk_names[COUNT_NK] = {
     [NK_X]       = "x",
     [NK_Y]       = "y",
     [NK_RULE]    = "rule",
     [NK_RANDOM]  = "random",
     [NK_NUMBER]  = "number",
+    [NK_SQRT]    = "sqrt",
     [NK_BOOLEAN] = "boolean",
     [NK_ADD]     = "add",
     [NK_MULT]    = "mult",
@@ -70,6 +72,7 @@ typedef union {
     float number;
     bool boolean;
     Node_Binop binop;
+    Node *unary;
     Node_Triple triple;
     Node_If iff;
     int rule;
@@ -87,6 +90,12 @@ Node *node_loc(const char *file, int line, Arena *arena, Node_Kind kind) {
     node->kind = kind;
     node->file = file;
     node->line = line;
+    return node;
+}
+
+Node *node_unary_loc(const char *file, int line, Arena *arena, Node_Kind kind, Node *unary) {
+    Node *node = node_loc(file, line, arena, kind);
+    node->as.unary = unary;
     return node;
 }
 
@@ -121,6 +130,8 @@ Node *node_boolean_loc(const char *file, int line, Arena *arena, bool boolean) {
 #define node_x(arena)      node_loc(__FILE__, __LINE__, arena, NK_X)
 #define node_y(arena)      node_loc(__FILE__, __LINE__, arena, NK_Y)
 #define node_random(arena) node_loc(__FILE__, __LINE__, arena, NK_RANDOM)
+
+#define node_sqrt(arena, unary)  node_unary_loc(__FILE__, __LINE__, arena, NK_SQRT, unary)
 
 #define node_add(arena, lhs, rhs)  node_binop_loc(__FILE__, __LINE__, arena, NK_ADD, lhs, rhs)
 #define node_mult(arena, lhs, rhs) node_binop_loc(__FILE__, __LINE__, arena, NK_MULT, lhs, rhs)
@@ -164,6 +175,11 @@ void node_print(Node *node) {
             break;
         case NK_BOOLEAN:
             printf("%s", node->as.boolean ? "true" : "false");
+            break;
+        case NK_SQRT:
+            printf("sqrt(");
+            node_print(node->as.unary);
+            printf(")");
             break;
         case NK_ADD:
             printf("add(");
@@ -279,6 +295,12 @@ Node *eval(Node *expr, Arena *arena, float x, float y) {
             printf("%s:%d: ERROR: cannot evaluate a node that valid only for grammer definitions\n", expr->file, expr->line);
             return NULL;
         }
+        case NK_SQRT: {
+            Node *rhs = eval(expr->as.unary, arena, x, y);
+            if (!rhs) return NULL;
+            if (!expect_number(rhs)) return NULL;
+            return node_number_loc(expr->file, expr->line, arena, sqrtf(rhs->as.number));
+        }
         case NK_ADD: {
             Node *lhs = eval(expr->as.binop.lhs, arena, x, y);
             if (!lhs) return NULL;
@@ -354,23 +376,6 @@ bool eval_func(Node *f, Arena *arena, float x, float y, Color *c) {
     return true;
 }
 
-void render_pixels_old(Color (*f)(float x, float y)) {
-    for (size_t y = 0; y < HEIGHT; ++y) {
-        // Normalize the value between -1..1
-        float ny = (float)y/HEIGHT*2.0f - 1;
-        for (size_t x = 0; x < WIDTH; ++x) {
-            float nx = (float)x/WIDTH*2.0f - 1;
-            Color c = f(nx, ny);
-            // -1..1 => 0..2 => 0..255
-            size_t index = y*WIDTH + x;
-            pixels[index].r = (c.r + 1)/2*255;
-            pixels[index].g = (c.g + 1)/2*255;
-            pixels[index].b = (c.b + 1)/2*255;
-            pixels[index].a = 255;;
-        }
-	}
-}
-
 bool render_pixels(Node *f) {
     Arena arena = {0};
     for (size_t y = 0; y < HEIGHT; ++y) {
@@ -388,7 +393,7 @@ bool render_pixels(Node *f) {
             pixels[index].b = (c.b + 1)/2*255;
             pixels[index].a = 255;
         }
-	}
+    }
     return true;
 }
 
@@ -438,6 +443,12 @@ Node *gen_node(Grammar grammar, Arena *arena, Node *node, int depth) {
         case NK_BOOLEAN:
             return node;
 
+        case NK_SQRT: {
+            Node *rhs = gen_node(grammar, arena, node->as.unary, depth);
+            if (!rhs) return NULL;
+            return node_unary_loc(node->file, node->line, arena, node->kind, rhs);
+        }
+
         case NK_ADD:
         case NK_MULT:
         case NK_MOD:
@@ -481,7 +492,7 @@ Node *gen_node(Grammar grammar, Arena *arena, Node *node, int depth) {
     }
 }
 
-#define GEN_RULE_MAX_ATTEMPTS 100
+#define GEN_RULE_MAX_ATTEMPTS 2
 
 Node *gen_rule(Grammar grammar, Arena *arena, size_t rule, int depth) {
     if (depth <= 0) return NULL;
@@ -539,38 +550,50 @@ int main() {
 
     arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
         .node = node_rule(&static_arena, a),
-        // .probability = 1.f/4.f,
-        .probability = 1.f/2.f,
+        .probability = 1.f/4.f,
+        // .probability = 1.f/2.f,
     }));
     arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
         .node = node_add(&static_arena, node_rule(&static_arena, c), node_rule(&static_arena, c)),
-        // .probability = 3.f/8.f,
-        .probability = 1.f/4.f,
+        .probability = 3.f/8.f,
+        // .probability = 1.f/4.f,
     }));
     arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
         .node = node_mult(&static_arena, node_rule(&static_arena, c), node_rule(&static_arena, c)),
-        // .probability = 3.f/8.f,
-        .probability = 1.f/4.f,
+        .probability = 3.f/8.f,
+        // .probability = 1.f/4.f,
     }));
     arena_da_append(&static_arena, &grammar, branches);
     memset(&branches, 0, sizeof(branches));
 
-    Node *f = gen_rule(grammar, &static_arena, e, 50);
+    Node *f = gen_rule(grammar, &static_arena, e, 25);
     if (!f) {
-        fprintf(stderr, "[ERROR]: ERROR: the crappy generation process could not terminate\n");
+        fprintf(stderr, "[ERROR]: the crappy generation process could not terminate\n");
         return 1;
     }
     node_print_ln(f);
 
-	// render_pixels(gray_gradient);
-	// render_pixels(cool);
-	render_pixels(f);
+   // bool ok = render_pixels(node_triple(node_x(), node_x(), node_x()));
+    // bool ok = render_pixels(
+    //     node_if(
+    //         node_gt(node_mult(node_x(), node_y()), node_number(0)),
+    //         node_triple(
+    //             node_x(),
+    //             node_y(),
+    //             node_number(1)),
+    //         node_triple(
+    //             node_mod(node_x(), node_y()),
+    //             node_mod(node_x(), node_y()),
+    //             node_mod(node_x(), node_y()))));
+
+    bool ok = render_pixels(f);
+
+    if (!ok) return 1;
 	const char *output_path = "ast_art.png";
 	if (!stbi_write_png(output_path, WIDTH, HEIGHT, 4, pixels, WIDTH*sizeof(RGBA32))) {
 		fprintf(stderr, "[ERROR]: Could not save image %s", output_path);
-        abort();
 		return 1;
 	};
-	printf("[INFO]:  Output image saved in %s\n", output_path);
+	printf("[INFO]:  Generated %s\n", output_path);
 	return 0;
 }

@@ -2,11 +2,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
+#include <math.h>
 
 #include "raylib.h"
 #include "rlgl.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 #define NOB_IMPLEMENTATION
@@ -16,7 +16,7 @@
 // #define WIDTH 1920
 // #define HEIGHT 1080
 #define WIDTH 800
-#define HEIGHT 800
+#define HEIGHT 600
 
 static Arena static_arena = {0};
 static Arena *context_arena = &static_arena;
@@ -240,6 +240,7 @@ void node_print(Node *node) {
             printf(" else ");
             node_print(node->as.iff.elze);
             break;
+        case COUNT_NK:
         default:
             fprintf(stderr, "[ERROR]: Unreachable state reached in SWITCH Condition in node_print");
             abort();
@@ -690,6 +691,7 @@ int main(int argc, char **argv) {
     srand(time(0));
 
     const char *program_name = shift(argv, argc);
+    int depth = 30;
 
     if (argc <= 0) {
         nob_log(ERROR, "Usage: %s <command>", program_name);
@@ -710,7 +712,7 @@ int main(int argc, char **argv) {
         Grammar grammar = {0};
         int entry = default_grammar(&grammar);
 
-        Node *f = gen_rule(grammar, entry, 100);
+        Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
             fprintf(stderr, "[ERROR]: The crappy generation process could not terminate\n");
             return 1;
@@ -738,11 +740,11 @@ int main(int argc, char **argv) {
     }
 
     if (strcmp(command_name, "gui") == 0) {
-        InitWindow(800, 600, "RandomArt");
+        InitWindow(WIDTH, HEIGHT, "RandomArt");
         Grammar grammar = {0};
         int entry = default_grammar(&grammar);
 
-        Node *f = gen_rule(grammar, entry, 30);
+        Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
             fprintf(stderr, "[ERROR]: The crappy generation process could not terminate\n");
             return 1;

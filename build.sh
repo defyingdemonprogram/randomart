@@ -5,11 +5,15 @@ CFLAGS="-Wall -Wextra -ggdb -Wswitch-enum"
 LIBS="-lm -ldl -lpthread"
 RAYLIB_PATH="./raylib/raylib-5.5_linux_amd64"
 
+# Files
+INPUT_FILE="src/randomart.c"
+OUTPUT_FILE="./build/ranomart"
+
 # Ensure the build directory exists
 mkdir -p build
 
 cc $CFLAGS -I"$RAYLIB_PATH/include" \
-    main.c -o ./build/ranomart  \
+    $INPUT_FILE -o $OUTPUT_FILE  \
     -L"$RAYLIB_PATH/lib" -lraylib \
     $LIBS
 

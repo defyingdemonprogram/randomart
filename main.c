@@ -13,6 +13,8 @@
 #define HEIGHT 800
 
 static Arena static_arena = {0};
+static Arena *context_arena = &static_arena;
+#define context_da_append(da, x) arena_da_append(context_arena, (da), (x))
 
 typedef enum {
     NK_X,
@@ -85,76 +87,76 @@ struct Node {
     Node_As as;
 };
 
-Node *node_loc(const char *file, int line, Arena *arena, Node_Kind kind) {
-    Node *node = arena_alloc(arena, sizeof(Node));
+Node *node_loc(const char *file, int line, Node_Kind kind) {
+    Node *node = arena_alloc(context_arena, sizeof(Node));
     node->kind = kind;
     node->file = file;
     node->line = line;
     return node;
 }
 
-Node *node_unary_loc(const char *file, int line, Arena *arena, Node_Kind kind, Node *unary) {
-    Node *node = node_loc(file, line, arena, kind);
+Node *node_unary_loc(const char *file, int line, Node_Kind kind, Node *unary) {
+    Node *node = node_loc(file, line, kind);
     node->as.unary = unary;
     return node;
 }
 
-Node *node_binop_loc(const char *file, int line, Arena *arena, Node_Kind kind, Node *lhs, Node *rhs) {
-    Node *node = node_loc(file, line, arena, kind);
+Node *node_binop_loc(const char *file, int line, Node_Kind kind, Node *lhs, Node *rhs) {
+    Node *node = node_loc(file, line, kind);
     node->as.binop.lhs = lhs;
     node->as.binop.rhs = rhs;
     return node;
 }
 
-Node *node_number_loc(const char *file, int line, Arena *arena, float number) {
-    Node *node = node_loc(file, line, arena, NK_NUMBER);
+Node *node_number_loc(const char *file, int line, float number) {
+    Node *node = node_loc(file, line, NK_NUMBER);
     node->as.number = number;
     return node;
 }
-#define node_number(arena, number) node_number_loc(__FILE__, __LINE__, arena, number)
+#define node_number(number) node_number_loc(__FILE__, __LINE__, number)
 
-Node *node_rule_loc(const char *file, int line, Arena *arena, int rule) {
-    Node *node = node_loc(file, line, arena, NK_RULE);
+Node *node_rule_loc(const char *file, int line, int rule) {
+    Node *node = node_loc(file, line, NK_RULE);
     node->as.rule = rule;
     return node;
 }
-#define node_rule(arena, rule) node_rule_loc(__FILE__, __LINE__, arena, rule)
+#define node_rule(rule) node_rule_loc(__FILE__, __LINE__, rule)
 
-Node *node_boolean_loc(const char *file, int line, Arena *arena, bool boolean) {
-    Node *node = node_loc(file, line, arena, NK_BOOLEAN);
+Node *node_boolean_loc(const char *file, int line, bool boolean) {
+    Node *node = node_loc(file, line, NK_BOOLEAN);
     node->as.boolean = boolean;
     return node;
 }
-#define node_boolean(arena, boolean) node_boolean_loc(__FILE__, __LINE__, arena, boolean)
+#define node_boolean(boolean) node_boolean_loc(__FILE__, __LINE__, boolean)
 
-#define node_x(arena)      node_loc(__FILE__, __LINE__, arena, NK_X)
-#define node_y(arena)      node_loc(__FILE__, __LINE__, arena, NK_Y)
-#define node_random(arena) node_loc(__FILE__, __LINE__, arena, NK_RANDOM)
+#define node_x()      node_loc(__FILE__, __LINE__, NK_X)
+#define node_y()      node_loc(__FILE__, __LINE__, NK_Y)
+#define node_random() node_loc(__FILE__, __LINE__, NK_RANDOM)
 
-#define node_sqrt(arena, unary)  node_unary_loc(__FILE__, __LINE__, arena, NK_SQRT, unary)
+#define node_sqrt(unary)  node_unary_loc(__FILE__, __LINE__, NK_SQRT, unary)
 
-#define node_add(arena, lhs, rhs)  node_binop_loc(__FILE__, __LINE__, arena, NK_ADD, lhs, rhs)
-#define node_mult(arena, lhs, rhs) node_binop_loc(__FILE__, __LINE__, arena, NK_MULT, lhs, rhs)
-#define node_mod(arena, lhs, rhs)  node_binop_loc(__FILE__, __LINE__, arena, NK_MOD, lhs, rhs)
-#define node_gt(arena, lhs, rhs)   node_binop_loc(__FILE__, __LINE__, arena, NK_GT, lhs, rhs)
+#define node_add(lhs, rhs)  node_binop_loc(__FILE__, __LINE__, NK_ADD, lhs, rhs)
+#define node_mult(lhs, rhs) node_binop_loc(__FILE__, __LINE__, NK_MULT, lhs, rhs)
+#define node_mod(lhs, rhs)  node_binop_loc(__FILE__, __LINE__, NK_MOD, lhs, rhs)
+#define node_gt(lhs, rhs)   node_binop_loc(__FILE__, __LINE__, NK_GT, lhs, rhs)
 
-Node *node_triple_loc(const char *file, int line, Arena *arena, Node *first, Node *second, Node *third) {
-    Node *node = node_loc(file, line, arena, NK_TRIPLE);
+Node *node_triple_loc(const char *file, int line, Node *first, Node *second, Node *third) {
+    Node *node = node_loc(file, line, NK_TRIPLE);
     node->as.triple.first  = first;
     node->as.triple.second = second;
     node->as.triple.third  = third;
     return node;
 }
-#define node_triple(arena, first, second, third) node_triple_loc(__FILE__, __LINE__, arena, first, second, third)
+#define node_triple(first, second, third) node_triple_loc(__FILE__, __LINE__, first, second, third)
 
-Node *node_if_loc(const char *file, int line, Arena *arena, Node *cond, Node *then, Node *elze) {
-    Node *node = node_loc(file, line, arena, NK_IF);
+Node *node_if_loc(const char *file, int line, Node *cond, Node *then, Node *elze) {
+    Node *node = node_loc(file, line, NK_IF);
     node->as.iff.cond = cond;
     node->as.iff.then = then;
     node->as.iff.elze = elze;
     return node;
 }
-#define node_if(arena, cond, then, elze) node_if_loc(__FILE__, __LINE__, arena, cond, then, elze)
+#define node_if(cond, then, elze) node_if_loc(__FILE__, __LINE__, cond, then, elze)
 
 void node_print(Node *node) {
     switch (node->kind) {
@@ -284,10 +286,10 @@ bool expect_triple(Node *expr) {
     return true;
 }
 
-Node *eval(Node *expr, Arena *arena, float x, float y) {
+Node *eval(Node *expr, float x, float y) {
     switch (expr->kind) {
-        case NK_X:      return node_number_loc(expr->file, expr->line, arena, x);
-        case NK_Y:      return node_number_loc(expr->file, expr->line, arena, y);
+        case NK_X:      return node_number_loc(expr->file, expr->line, x);
+        case NK_Y:      return node_number_loc(expr->file, expr->line, y);
         case NK_BOOLEAN:
         case NK_NUMBER: return expr;
         case NK_RANDOM:
@@ -296,63 +298,63 @@ Node *eval(Node *expr, Arena *arena, float x, float y) {
             return NULL;
         }
         case NK_SQRT: {
-            Node *rhs = eval(expr->as.unary, arena, x, y);
+            Node *rhs = eval(expr->as.unary, x, y);
             if (!rhs) return NULL;
             if (!expect_number(rhs)) return NULL;
-            return node_number_loc(expr->file, expr->line, arena, sqrtf(rhs->as.number));
+            return node_number_loc(expr->file, expr->line, sqrtf(rhs->as.number));
         }
         case NK_ADD: {
-            Node *lhs = eval(expr->as.binop.lhs, arena, x, y);
+            Node *lhs = eval(expr->as.binop.lhs, x, y);
             if (!lhs) return NULL;
             if (!expect_number(lhs)) return NULL;
-            Node *rhs = eval(expr->as.binop.rhs, arena, x, y);
+            Node *rhs = eval(expr->as.binop.rhs, x, y);
             if (!rhs) return NULL;
             if (!expect_number(rhs)) return NULL;
-            return node_number_loc(expr->file, expr->line, arena, lhs->as.number + rhs->as.number);
+            return node_number_loc(expr->file, expr->line, lhs->as.number + rhs->as.number);
         }
         case NK_MULT: {
-            Node *lhs = eval(expr->as.binop.lhs, arena, x, y);
+            Node *lhs = eval(expr->as.binop.lhs, x, y);
             if (!lhs) return NULL;
             if (!expect_number(lhs)) return NULL;
-            Node *rhs = eval(expr->as.binop.rhs, arena, x, y);
+            Node *rhs = eval(expr->as.binop.rhs, x, y);
             if (!rhs) return NULL;
             if (!expect_number(rhs)) return NULL;
-            return node_number_loc(expr->file, expr->line, arena, lhs->as.number * rhs->as.number);
+            return node_number_loc(expr->file, expr->line, lhs->as.number * rhs->as.number);
         }
         case NK_MOD: {
-            Node *lhs = eval(expr->as.binop.lhs, arena, x, y);
+            Node *lhs = eval(expr->as.binop.lhs, x, y);
             if (!lhs) return NULL;
             if (!expect_number(lhs)) return NULL;
-            Node *rhs = eval(expr->as.binop.rhs, arena, x, y);
+            Node *rhs = eval(expr->as.binop.rhs, x, y);
             if (!rhs) return NULL;
             if (!expect_number(rhs)) return NULL;
-            return node_number_loc(expr->file, expr->line, arena, fmod(lhs->as.number, rhs->as.number));
+            return node_number_loc(expr->file, expr->line, fmod(lhs->as.number, rhs->as.number));
         }
         case NK_GT: {
-            Node *lhs = eval(expr->as.binop.lhs, arena, x, y);
+            Node *lhs = eval(expr->as.binop.lhs, x, y);
             if (!lhs) return NULL;
             if (!expect_number(lhs)) return NULL;
-            Node *rhs = eval(expr->as.binop.rhs, arena, x, y);
+            Node *rhs = eval(expr->as.binop.rhs, x, y);
             if (!rhs) return NULL;
             if (!expect_number(rhs)) return NULL;
-            return node_boolean_loc(expr->file, expr->line, arena, lhs->as.number > rhs->as.number);
+            return node_boolean_loc(expr->file, expr->line, lhs->as.number > rhs->as.number);
         }
         case NK_TRIPLE: {
-            Node *first = eval(expr->as.triple.first, arena, x, y);
+            Node *first = eval(expr->as.triple.first, x, y);
             if (!first) return NULL;
-            Node *second = eval(expr->as.triple.second, arena, x, y);
+            Node *second = eval(expr->as.triple.second, x, y);
             if (!second) return NULL;
-            Node *third = eval(expr->as.triple.third, arena, x, y);
+            Node *third = eval(expr->as.triple.third, x, y);
             if (!third) return NULL;
-            return node_triple_loc(expr->file, expr->line, arena, first, second, third);
+            return node_triple_loc(expr->file, expr->line, first, second, third);
         }
         case NK_IF: {
-            Node *cond = eval(expr->as.iff.cond, arena, x, y);
+            Node *cond = eval(expr->as.iff.cond, x, y);
             if (!cond) return NULL;
             if (!expect_boolean(cond)) return NULL;
-            Node *then = eval(expr->as.iff.then, arena, x, y);
+            Node *then = eval(expr->as.iff.then, x, y);
             if (!then) return NULL;
-            Node *elze = eval(expr->as.iff.elze, arena, x, y);
+            Node *elze = eval(expr->as.iff.elze, x, y);
             if (!elze) return NULL;
             return cond->as.boolean ? then : elze;
         }
@@ -363,8 +365,8 @@ Node *eval(Node *expr, Arena *arena, float x, float y) {
     }
 }
 
-bool eval_func(Node *f, Arena *arena, float x, float y, Color *c) {
-    Node *result = eval(f, arena, x, y);
+bool eval_func(Node *f, float x, float y, Color *c) {
+    Node *result = eval(f, x, y);
     if (!result) return false;
     if (!expect_triple(result)) return false;
     if (!expect_number(result->as.triple.first)) return false;
@@ -377,15 +379,21 @@ bool eval_func(Node *f, Arena *arena, float x, float y, Color *c) {
 }
 
 bool render_pixels(Node *f) {
-    Arena arena = {0};
+    Arena temp_arena = {0};
+    Arena *saved_arena = context_arena;
+    context_arena = &temp_arena;
     for (size_t y = 0; y < HEIGHT; ++y) {
         // Normalize the value between -1..1
         float ny = (float)y/HEIGHT*2.0f - 1;
         for (size_t x = 0; x < WIDTH; ++x) {
             float nx = (float)x/WIDTH*2.0f - 1;
             Color c;
-            if (!eval_func(f, &arena, nx, ny, &c)) return false;
-            arena_reset(&arena);
+            if (!eval_func(f, nx, ny, &c)) {
+                arena_free(&temp_arena);
+                context_arena = saved_arena;
+                return false;
+            };
+            arena_reset(&temp_arena);
             // -1..1 => 0..2 => 0..255
             size_t index = y*WIDTH + x;
             pixels[index].r = (c.r + 1)/2*255;
@@ -429,13 +437,13 @@ void grammar_print(Grammar grammar) {
     }
 }
 
-Node *gen_rule(Grammar grammar, Arena *arena, size_t rule, int depth);
+Node *gen_rule(Grammar grammar, size_t rule, int depth);
 
 float rand_float(void) {
     return (float) rand() / (float) RAND_MAX;
 }
 
-Node *gen_node(Grammar grammar, Arena *arena, Node *node, int depth) {
+Node *gen_node(Grammar grammar, Node *node, int depth) {
     switch (node->kind) {
         case NK_X:
         case NK_Y:
@@ -444,46 +452,46 @@ Node *gen_node(Grammar grammar, Arena *arena, Node *node, int depth) {
             return node;
 
         case NK_SQRT: {
-            Node *rhs = gen_node(grammar, arena, node->as.unary, depth);
+            Node *rhs = gen_node(grammar, node->as.unary, depth);
             if (!rhs) return NULL;
-            return node_unary_loc(node->file, node->line, arena, node->kind, rhs);
+            return node_unary_loc(node->file, node->line, node->kind, rhs);
         }
 
         case NK_ADD:
         case NK_MULT:
         case NK_MOD:
         case NK_GT: {
-            Node *lhs = gen_node(grammar, arena, node->as.binop.lhs, depth);
+            Node *lhs = gen_node(grammar, node->as.binop.lhs, depth);
             if (!lhs) return NULL;
-            Node *rhs = gen_node(grammar, arena, node->as.binop.rhs, depth);
+            Node *rhs = gen_node(grammar, node->as.binop.rhs, depth);
             if (!rhs) return NULL;
-            return node_binop_loc(node->file, node->line, arena, node->kind, lhs, rhs);
+            return node_binop_loc(node->file, node->line, node->kind, lhs, rhs);
         }
 
         case NK_TRIPLE: {
-            Node *first  = gen_node(grammar, arena, node->as.triple.first, depth);
+            Node *first  = gen_node(grammar, node->as.triple.first, depth);
             if (!first) return NULL;
-            Node *second = gen_node(grammar, arena, node->as.triple.second, depth);
+            Node *second = gen_node(grammar, node->as.triple.second, depth);
             if (!second) return NULL;
-            Node *third  = gen_node(grammar, arena, node->as.triple.third, depth);
+            Node *third  = gen_node(grammar, node->as.triple.third, depth);
             if (!third) return NULL;
-            return node_triple_loc(node->file, node->line, arena, first, second, third);
+            return node_triple_loc(node->file, node->line, first, second, third);
         }
         case NK_IF: {
-            Node *cond = gen_node(grammar, arena, node->as.iff.cond, depth);
+            Node *cond = gen_node(grammar, node->as.iff.cond, depth);
             if (!cond) return NULL;
-            Node *then = gen_node(grammar, arena, node->as.iff.then, depth);
+            Node *then = gen_node(grammar, node->as.iff.then, depth);
             if (!then) return NULL;
-            Node *elze = gen_node(grammar, arena, node->as.iff.elze, depth);
+            Node *elze = gen_node(grammar, node->as.iff.elze, depth);
             if (!elze) return NULL;
-            return node_if_loc(node->file, node->line, arena, cond, then, elze);
+            return node_if_loc(node->file, node->line, cond, then, elze);
         }
 
         case NK_RULE:
-            return gen_rule(grammar, arena, node->as.rule, depth - 1);
+            return gen_rule(grammar, node->as.rule, depth - 1);
 
         case NK_RANDOM:
-            return node_number_loc(node->file, node->line, arena, rand_float()*2.0f - 1.0f);
+            return node_number_loc(node->file, node->line, rand_float()*2.0f - 1.0f);
 
         case COUNT_NK:
         default:
@@ -492,9 +500,9 @@ Node *gen_node(Grammar grammar, Arena *arena, Node *node, int depth) {
     }
 }
 
-#define GEN_RULE_MAX_ATTEMPTS 2
+#define GEN_RULE_MAX_ATTEMPTS 100
 
-Node *gen_rule(Grammar grammar, Arena *arena, size_t rule, int depth) {
+Node *gen_rule(Grammar grammar, size_t rule, int depth) {
     if (depth <= 0) return NULL;
 
     assert(rule < grammar.count);
@@ -509,7 +517,7 @@ Node *gen_rule(Grammar grammar, Arena *arena, size_t rule, int depth) {
         for (size_t i = 0; i < branches->count; ++i) {
             t += branches->items[i].probability;
             if (t >= p) {
-                node = gen_node(grammar, arena, branches->items[i].node, depth - 1);
+                node = gen_node(grammar, branches->items[i].node, depth - 1);
                 break;
             }
         }
@@ -526,49 +534,49 @@ int main() {
     int a = 1;
     int c = 2;
 
-    arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
-        .node = node_triple(&static_arena, node_rule(&static_arena, c), node_rule(&static_arena, c), node_rule(&static_arena, c)),
+    context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_triple(node_rule(c), node_rule(c), node_rule(c)),
         .probability = 1.0f
     }));
-    arena_da_append(&static_arena, &grammar, branches);
+    context_da_append(&grammar, branches);
     memset(&branches, 0, sizeof(branches));
 
-    arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
-        .node = node_random(&static_arena),
+    context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_random(),
         .probability = 1.0/3.0,
     }));
-    arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
-        .node = node_x(&static_arena),
+    context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_x(),
         .probability = 1.0/3.0,
     }));
-    arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
-        .node = node_y(&static_arena),
+    context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_y(),
         .probability = 1.0/3.0,
     }));
-    arena_da_append(&static_arena, &grammar, branches);
+    context_da_append(&grammar, branches);
     memset(&branches, 0, sizeof(branches));
 
-    arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
-        .node = node_rule(&static_arena, a),
+    context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_rule(a),
         .probability = 1.f/4.f,
         // .probability = 1.f/2.f,
     }));
-    arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
-        .node = node_add(&static_arena, node_rule(&static_arena, c), node_rule(&static_arena, c)),
-        .probability = 3.f/8.f,
-        // .probability = 1.f/4.f,
+    context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_add(node_rule(c), node_rule(c)),
+        // .probability = 3.f/8.f,
+        .probability = 1.f/4.f,
     }));
-    arena_da_append(&static_arena, &branches, ((Grammar_Branch) {
-        .node = node_mult(&static_arena, node_rule(&static_arena, c), node_rule(&static_arena, c)),
-        .probability = 3.f/8.f,
-        // .probability = 1.f/4.f,
+    context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_mult(node_rule(c), node_rule(c)),
+        // .probability = 3.f/8.f,
+        .probability = 1.f/4.f,
     }));
-    arena_da_append(&static_arena, &grammar, branches);
+    context_da_append(&grammar, branches);
     memset(&branches, 0, sizeof(branches));
 
-    Node *f = gen_rule(grammar, &static_arena, e, 25);
+    Node *f = gen_rule(grammar, e, 30);
     if (!f) {
-        fprintf(stderr, "[ERROR]: the crappy generation process could not terminate\n");
+        fprintf(stderr, "[ERROR]: The crappy generation process could not terminate\n");
         return 1;
     }
     node_print_ln(f);
@@ -594,6 +602,6 @@ int main() {
 		fprintf(stderr, "[ERROR]: Could not save image %s", output_path);
 		return 1;
 	};
-	printf("[INFO]:  Generated %s\n", output_path);
+	printf("[INFO]: Generated %s\n", output_path);
 	return 0;
 }

@@ -14,8 +14,8 @@
 #include "nob.h"
 #include "ffmpeg.h"
 
-// #define WIDTH 1920
-// #define HEIGHT 1080
+// #define width 1920
+// #define height 1080
 #define WIDTH 1600
 #define HEIGHT 900
 #define FPS 60
@@ -295,7 +295,7 @@ Node *eval(Node *expr, float x, float y, float t) {
         case NK_NUMBER: return expr;
         case NK_RANDOM:
         case NK_RULE: {
-            printf("%s:%d: ERROR: cannot evaluate a node that valid only for grammer definitions\n", expr->file, expr->line);
+            printf("%s:%d: ERROR: cannot evaluate a node that valid only for grammar definitions\n", expr->file, expr->line);
             return NULL;
         }
         case NK_SQRT: {
@@ -361,7 +361,7 @@ Node *eval(Node *expr, float x, float y, float t) {
         }
         case COUNT_NK:
         default:
-            fprintf(stderr, "[ERROR]: Unreachable state reached in SWITCH Condition in node_print");
+            fprintf(stderr, "[ERROR]: Unreachable state reached in SWITCH Condition in eval");
             abort();
     }
 }
@@ -379,16 +379,22 @@ bool eval_func(Node *f, float x, float y, float t, Vector3 *c) {
     return true;
 }
 
-bool render_pixels(Image image, Node *f) {
+float clamp_float(float v, float lo, float hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+bool render_image(Image image, Node *f) {
     Color *pixels = image.data;
     Arena temp_arena = {0};
     Arena *saved_arena = context_arena;
     context_arena = &temp_arena;
-    for (size_t y = 0; y < HEIGHT; ++y) {
+    for (int y = 0; y < image.height; ++y) {
         // Normalize the value between -1..1
-        float ny = (float)y/HEIGHT*2.0f - 1;
-        for (size_t x = 0; x < WIDTH; ++x) {
-            float nx = (float)x/WIDTH*2.0f - 1;
+        float ny = (float)y/image.height*2.0f - 1;
+        for (int x = 0; x < image.width; ++x) {
+            float nx = (float)x/image.width*2.0f - 1;
             Vector3 c;
             if (!eval_func(f, nx, ny, 0.0, &c)) {
                 arena_free(&temp_arena);
@@ -397,13 +403,15 @@ bool render_pixels(Image image, Node *f) {
             };
             arena_reset(&temp_arena);
             // -1..1 => 0..2 => 0..255
-            size_t index = y*WIDTH + x;
-            pixels[index].r = (c.x + 1)/2*255;
-            pixels[index].g = (c.y + 1)/2*255;
-            pixels[index].b = (c.z + 1)/2*255;
+            size_t index = y*image.width + x;
+            pixels[index].r = clamp_float((c.x + 1)/2*255, 0, 255);
+            pixels[index].g = clamp_float((c.y + 1)/2*255, 0, 255);
+            pixels[index].b = clamp_float((c.z + 1)/2*255, 0, 255);
             pixels[index].a = 255;
         }
     }
+    arena_free(&temp_arena);
+    context_arena = saved_arena;
     return true;
 }
 
@@ -411,13 +419,14 @@ bool render_pixels(Image image, Node *f) {
 
 typedef struct {
     Node *node;
-    float probability;
+    size_t weight;
 } Grammar_Branch;
 
 typedef struct {
     Grammar_Branch *items;
     size_t capacity;
     size_t count;
+    size_t weight_sum;
 } Grammar_Branches;
 
 typedef struct {
@@ -427,16 +436,8 @@ typedef struct {
 } Grammar;
 
 void grammar_print(Grammar grammar) {
-    for (size_t i = 0; i < grammar.count; ++i) {
-        printf("%zu ::= ", i);
-        Grammar_Branches *branches = &grammar.items[i];
-        for (size_t j = 0; j < branches->count; ++j) {
-            if (j > 0) printf(" | ");
-            node_print(branches->items[j].node);
-            printf(" [%.02f]", branches->items[j].probability);
-        }
-        printf("\n");
-    }
+    (void) grammar;
+    TODO("grammar_print: use the same grammar as the one we parse");
 }
 
 Node *gen_rule(Grammar grammar, size_t rule, int depth);
@@ -517,7 +518,7 @@ Node *gen_rule(Grammar grammar, size_t rule, int depth) {
         float p = rand_float();
         float t = 0.0f;
         for (size_t i = 0; i < branches->count; ++i) {
-            t += branches->items[i].probability;
+            t += (float)branches->items[i].weight/branches->weight_sum;
             if (t >= p) {
                 node = gen_node(grammar, branches->items[i].node, depth - 1);
                 break;
@@ -525,6 +526,15 @@ Node *gen_rule(Grammar grammar, size_t rule, int depth) {
         }
     }
     return node;
+}
+
+void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches) {
+    branches->weight_sum = 0;
+    for (size_t i = 0; i < branches->count; ++i) {
+        branches->weight_sum += branches->items[i].weight;
+    }
+    context_da_append(grammar, *branches);
+    memset(branches, 0, sizeof(*branches));
 }
 
 int default_grammar(Grammar *grammar) {
@@ -535,54 +545,49 @@ int default_grammar(Grammar *grammar) {
 
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_triple(node_rule(c), node_rule(c), node_rule(c)),
-        .probability = 1.0f
+        .weight = 1,
     }));
-    context_da_append(grammar, branches);
-    memset(&branches, 0, sizeof(branches));
+    grammar_append_branches(grammar, &branches);
 
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_random(),
+        .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_x(),
+        .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_y(),
+        .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_t(),
+        .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_sqrt(
             node_add(
             node_add(node_mult(node_x(), node_x()),
                      node_mult(node_y(), node_y())),
-            node_mult(node_t(), node_t()))),
+                     node_mult(node_t(), node_t()))),
+        .weight = 1,
     }));
-    for (size_t i = 0; i < branches.count; ++i) {
-        branches.items[i].probability = 1.0/branches.count;
-    }
-
-    context_da_append(grammar, branches);
-    memset(&branches, 0, sizeof(branches));
+    grammar_append_branches(grammar, &branches);
 
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_rule(a),
-        .probability = 1.f/4.f,
-        // .probability = 1.f/2.f,
+        .weight = 2,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_add(node_rule(c), node_rule(c)),
-        .probability = 3.f/8.f,
-        // .probability = 1.f/4.f,
+        .weight = 3,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_mult(node_rule(c), node_rule(c)),
-        .probability = 3.f/8.f,
-        // .probability = 1.f/4.f,
+        .weight = 3,
     }));
-    context_da_append(grammar, branches);
-    memset(&branches, 0, sizeof(branches));
+    grammar_append_branches(grammar, &branches);
     return e;
 }
 
@@ -691,12 +696,44 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f) {
     return true;
 }
 
+bool flag_int(int *argc, char ***argv, int *value) {
+    const char *flag = shift(*argv, *argc);
+    if ((*argc) <= 0) {
+        fprintf(stderr, "[ERROR]: No argument is provided for %s", flag);
+        return false;
+    }
+    *value = atoi(shift(*argv, *argc));
+    return true;
+}
+
 int main(int argc, char **argv) {
     const char *program_name = shift(argv, argc);
+
     int depth = MAX_GENERATION_DEPTH;
+    int seed = time(0);
+    int width = 16*100;
+    int height = 9*100;
+    int fps = 60;
+
+    while (argc > 0) {
+        const char *flag = argv[0];
+        if (strcmp(flag, "-seed") == 0) {
+            if (!flag_int(&argc, &argv, &seed)) return 1;
+        } else if (strcmp(flag, "-depth") == 0) {
+            if (!flag_int(&argc, &argv, &depth)) return 1;
+        } else if (strcmp(flag, "-width") == 0) {
+            if (!flag_int(&argc, &argv, &width)) return 1;
+        } else if (strcmp(flag, "-height") == 0) {
+            if (!flag_int(&argc, &argv, &height)) return 1;
+        } else if (strcmp(flag, "-fps") == 0) {
+            if (!flag_int(&argc, &argv, &fps)) return 1;
+        } else {
+            break;
+        }
+    }
 
     if (argc <= 0) {
-        nob_log(ERROR, "Usage: %s <command>", program_name);
+        nob_log(ERROR, "Usage: [options] %s <command>", program_name);
         nob_log(ERROR, "No command is provided");
         return 1;
     }
@@ -711,12 +748,21 @@ int main(int argc, char **argv) {
         }
 
         const char *output_path = shift(argv, argc);
+
+        if (argc > 0) {
+            fprintf(stderr, "[ERROR]: Usage: %s %s <output-path>", program_name, command_name);
+            fprintf(stderr, "[ERROR]: %s accepts only 1 argument", command_name);
+            return 1;
+        }
+
         Grammar grammar = {0};
         int entry = default_grammar(&grammar);
 
-        int seed = time(0);
         srand(seed);
         fprintf(stdout, "[INFO]: SEED: %d\n", seed);
+        fprintf(stdout, "[INFO]: DEPTH: %d\n", depth);
+        fprintf(stdout, "[INFO]: WIDTH: %d\n", width);
+        fprintf(stdout, "[INFO]: HEIGHT: %d\n", height);
 
         Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
@@ -725,33 +771,28 @@ int main(int argc, char **argv) {
         }
         node_print_ln(f);
 
-        Image image = GenImageColor(WIDTH, HEIGHT, BLANK);
-        // bool ok = render_pixels(node_triple(node_x(), node_x(), node_x()));
-        // bool ok = render_pixels(
-        //     node_if(
-        //         node_gt(node_mult(node_x(), node_y()), node_number(0)),
-        //         node_triple(
-        //             node_x(),
-        //             node_y(),
-        //             node_number(1)),
-        //         node_triple(
-        //             node_mod(node_x(), node_y()),
-        //             node_mod(node_x(), node_y()),
-        //             node_mod(node_x(), node_y()))));
-
-        if (!render_pixels(image, f)) return 1;
+        Image image = GenImageColor(width, height, BLANK);
+        if (!render_image(image, f)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
         return 0;
     }
 
     if (strcmp(command_name, "gui") == 0) {
+        if (argc > 0) {
+            fprintf(stderr, "[ERROR]: %s does not accept any arguments", command_name);
+            return 1;
+        }
+
         Grammar grammar = {0};
         int entry = default_grammar(&grammar);
 
-        int seed = time(0);
         srand(seed);
         fprintf(stdout, "[INFO]: SEED: %d\n", seed);
+        fprintf(stdout, "[INFO]: DEPTH: %d\n", depth);
+        fprintf(stdout, "[INFO]: WIDTH: %d\n", width);
+        fprintf(stdout, "[INFO]: HEIGHT: %d\n", height);
+        fprintf(stdout, "[INFO]: FPS: %d\n", fps);
 
         Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
@@ -765,11 +806,11 @@ int main(int argc, char **argv) {
 
         FFMPEG *ffmpeg = NULL;
 
-        InitWindow(WIDTH, HEIGHT, "RandomArt");
-        RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
+        InitWindow(width, height, "RandomArt");
+        RenderTexture2D screen = LoadRenderTexture(width, height);
         Shader shader = LoadShaderFromMemory(NULL, sb.items);
         int time_loc = GetShaderLocation(shader, "time");
-        SetTargetFPS(FPS);
+        SetTargetFPS(fps);
         SetExitKey(KEY_NULL);
         Texture default_texture = {
             .id = rlGetTextureIdDefault(),
@@ -810,8 +851,7 @@ int main(int argc, char **argv) {
                 if (!pause) time += dt;
 
                 if (IsKeyPressed(KEY_R)) {
-                    printf("-------------------\nPressedd KEY R\n");
-                    ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS, "nomusic");
+                    ffmpeg = ffmpeg_start_rendering(width, height, fps, "nomusic");
                     time = 0;
                     SetTraceLogLevel(LOG_WARNING);
                 }
@@ -858,10 +898,10 @@ int main(int argc, char **argv) {
                     }
 
                     Image image = LoadImageFromTexture(screen.texture);
-                    ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
+                    ffmpeg_send_frame_flipped(ffmpeg, image.data, width, height);
                     UnloadImage(image);
 
-                    time += 1.0f/FPS;
+                    time += 1.0f/fps;
 
                     if (IsKeyPressed(KEY_ESCAPE)) {
                         time = 0;

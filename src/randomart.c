@@ -12,11 +12,15 @@
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
 #include "nob.h"
+#include "ffmpeg.h"
 
 // #define WIDTH 1920
 // #define HEIGHT 1080
-#define WIDTH 800
-#define HEIGHT 600
+#define WIDTH 1600
+#define HEIGHT 900
+#define FPS 60
+#define MAX_GENERATION_DEPTH 30
+#define GEN_RULE_MAX_ATTEMPTS 100
 
 static Arena static_arena = {0};
 static Arena *context_arena = &static_arena;
@@ -499,8 +503,6 @@ Node *gen_node(Grammar grammar, Node *node, int depth) {
     }
 }
 
-#define GEN_RULE_MAX_ATTEMPTS 100
-
 Node *gen_rule(Grammar grammar, size_t rule, int depth) {
     if (depth <= 0) return NULL;
 
@@ -511,6 +513,7 @@ Node *gen_rule(Grammar grammar, size_t rule, int depth) {
 
     Node *node = NULL;
     for (size_t attempts = 0; node == NULL && attempts < GEN_RULE_MAX_ATTEMPTS; ++attempts) {
+        // [0......][...][...1]
         float p = rand_float();
         float t = 0.0f;
         for (size_t i = 0; i < branches->count; ++i) {
@@ -554,7 +557,7 @@ int default_grammar(Grammar *grammar) {
             node_add(
             node_add(node_mult(node_x(), node_x()),
                      node_mult(node_y(), node_y())),
-                     node_mult(node_t(), node_t()))),
+            node_mult(node_t(), node_t()))),
     }));
     for (size_t i = 0; i < branches.count; ++i) {
         branches.items[i].probability = 1.0/branches.count;
@@ -659,6 +662,7 @@ bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_
             if (!compile_node_into_fragment_expression(sb, expr->as.iff.elze, level + 1)) return false;
             sb_append_cstr(sb, ")");
             break;
+
         case COUNT_NK:
         default:
             fprintf(stderr, "ERROR: Unreachable state in compile_node_into_fragment_expression");
@@ -688,10 +692,8 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f) {
 }
 
 int main(int argc, char **argv) {
-    srand(time(0));
-
     const char *program_name = shift(argv, argc);
-    int depth = 30;
+    int depth = MAX_GENERATION_DEPTH;
 
     if (argc <= 0) {
         nob_log(ERROR, "Usage: %s <command>", program_name);
@@ -711,6 +713,10 @@ int main(int argc, char **argv) {
         const char *output_path = shift(argv, argc);
         Grammar grammar = {0};
         int entry = default_grammar(&grammar);
+
+        int seed = time(0);
+        srand(seed);
+        fprintf(stdout, "[INFO]: SEED: %d\n", seed);
 
         Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
@@ -740,9 +746,12 @@ int main(int argc, char **argv) {
     }
 
     if (strcmp(command_name, "gui") == 0) {
-        InitWindow(WIDTH, HEIGHT, "RandomArt");
         Grammar grammar = {0};
         int entry = default_grammar(&grammar);
+
+        int seed = time(0);
+        srand(seed);
+        fprintf(stdout, "[INFO]: SEED: %d\n", seed);
 
         Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
@@ -754,9 +763,14 @@ int main(int argc, char **argv) {
         if (!compile_node_func_into_fragment_shader(&sb, f)) return 1;
         sb_append_null(&sb);
 
+        FFMPEG *ffmpeg = NULL;
+
+        InitWindow(WIDTH, HEIGHT, "RandomArt");
+        RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
         Shader shader = LoadShaderFromMemory(NULL, sb.items);
         int time_loc = GetShaderLocation(shader, "time");
-        SetTargetFPS(60);
+        SetTargetFPS(FPS);
+        SetExitKey(KEY_NULL);
         Texture default_texture = {
             .id = rlGetTextureIdDefault(),
             .width = 1,
@@ -764,23 +778,104 @@ int main(int argc, char **argv) {
             .mipmaps = 1,
             .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
         };
+        float time = 0.0f;
+        float max_render_length = (2*PI)*4;
+        bool pause = false;
         while (!WindowShouldClose()) {
+            float w = GetScreenWidth();
+            float h = GetScreenHeight();
+            float dt = GetFrameTime();
             if (IsKeyPressed(KEY_Q)) {
                 printf("[INFO]: Quitting the GUI.\n");
                 break;
             }
             
             BeginDrawing();
-            float time = GetTime();
-            SetShaderValue(shader, time_loc, &time, SHADER_UNIFORM_FLOAT);
-            BeginShaderMode(shader);
-                DrawTexturePro(
-                    default_texture,
-                    (Rectangle){0, 0, 1, 1},
-                    (Rectangle){0, 0, GetScreenWidth(), GetScreenHeight()},
-                    (Vector2){0}, 0, WHITE);
-                // DrawTextureEx(default_texture, (Vector2){0, 0}, 0, size, WHITE);
-            EndShaderMode();
+            if (ffmpeg == NULL) {
+                SetShaderValue(shader, time_loc, &time, SHADER_UNIFORM_FLOAT);
+                BeginShaderMode(shader);
+                    DrawTexturePro(
+                            default_texture,
+                            (Rectangle){0, 0, 1, 1},
+                            (Rectangle){0, 0, w, h},
+                            (Vector2){0}, 0, WHITE);
+                    // DrawTextureEx(default_texture, (Vector2){0, 0}, 0, 10, WHITE);
+                EndShaderMode();
+
+                // Save screenshot when 'C' is pressed
+                if (IsKeyPressed(KEY_C)) {
+                    TakeScreenshot("screenshot.png");
+                    printf("[INFO]: Screenshot saved as screenshot.png\n");
+                }
+                if (!pause) time += dt;
+
+                if (IsKeyPressed(KEY_R)) {
+                    printf("-------------------\nPressedd KEY R\n");
+                    ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS, "nomusic");
+                    time = 0;
+                    SetTraceLogLevel(LOG_WARNING);
+                }
+                if (IsKeyPressed(KEY_SPACE)) {
+                    pause = !pause;
+                }
+            } else {
+                if (time < max_render_length) {
+                    BeginTextureMode(screen);
+                        SetShaderValue(shader, time_loc, &time, SHADER_UNIFORM_FLOAT);
+                        BeginShaderMode(shader);
+                            DrawTexturePro(
+                                    default_texture,
+                                    (Rectangle){0, 0, 1, 1},
+                                    (Rectangle){0, 0, w, h},
+                                    (Vector2){0}, 0, WHITE);
+                            // DrawTextureEx(default_texture, (Vector2){0, 0}, 0, size, WHITE);
+                        EndShaderMode();
+                    EndTextureMode();
+
+                    DrawTexture(screen.texture, 0, 0, WHITE);
+
+                    // Progress bar
+                    {
+                        Rectangle bar_frame = {0};
+                        bar_frame.width = w*.85f;
+                        bar_frame.height = h*.10f;
+                        bar_frame.x = w*.5f - bar_frame.width*.5f;
+                        bar_frame.y = h - bar_frame.height*2.f;
+
+                        float shadow_offset = 0.004f;
+
+                        Rectangle shadow_bar_frame = bar_frame;
+                        shadow_bar_frame.x -= w*shadow_offset;
+                        shadow_bar_frame.y += w*shadow_offset;
+
+                        Rectangle progress_bar = bar_frame;
+                        progress_bar.width *= time/max_render_length;
+
+                        float thick = w*.01f;
+                        DrawRectangleLinesEx(shadow_bar_frame, thick, BLACK);
+                        DrawRectangleRec(progress_bar, WHITE);
+                        DrawRectangleLinesEx(bar_frame, thick, WHITE);
+                    }
+
+                    Image image = LoadImageFromTexture(screen.texture);
+                    ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
+                    UnloadImage(image);
+
+                    time += 1.0f/FPS;
+
+                    if (IsKeyPressed(KEY_ESCAPE)) {
+                        time = 0;
+                        ffmpeg_end_rendering(ffmpeg, false);
+                        ffmpeg = NULL;
+                        SetTraceLogLevel(LOG_INFO);
+                    }
+                } else {
+                    time = 0;
+                    ffmpeg_end_rendering(ffmpeg, false);
+                    ffmpeg = NULL;
+                    SetTraceLogLevel(LOG_INFO);
+                }
+            }
             EndDrawing();
         }
         CloseWindow();
@@ -788,5 +883,5 @@ int main(int argc, char **argv) {
     }
 
     fprintf(stderr, "[ERROR]: Unknown command %s\n", command_name);
-	return 1;
+    return 1;
 }

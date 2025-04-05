@@ -8,6 +8,11 @@
 
 Once compiled, the executable can be found at `./build/main`.
 
+**Key Features:**
+* <kbd>R</kbd>: Render the video
+* <kbd>C</kbd>: Capture the current frame as an image
+* <kbd>Q</kbd>: Close the window
+
 ### Demo image
 ![ast_art](https://github.com/user-attachments/assets/bd12d31c-3bae-4bb8-b2ff-48857472d762)
 

@@ -9,6 +9,8 @@
 
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
+#define ALEXER_IMPLEMENTATION
+#include "alexer.h"
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
 #include "nob.h"
@@ -89,7 +91,7 @@ typedef union {
     Node *unop;
     Node_Triple triple;
     Node_If iff;
-    int rule;
+    Alexer_Token rule;
 } Node_As;
 
 struct Node {
@@ -127,7 +129,7 @@ Node *node_number_loc(const char *file, int line, float number) {
 }
 #define node_number(number) node_number_loc(__FILE__, __LINE__, number)
 
-Node *node_rule_loc(const char *file, int line, int rule) {
+Node *node_rule_loc(const char *file, int line, Alexer_Token rule) {
     Node *node = node_loc(file, line, NK_RULE);
     node->as.rule = rule;
     return node;
@@ -186,7 +188,7 @@ void node_print(Node *node) {
             printf("random");
             break;
         case NK_RULE:
-            printf("rule(%d)", node->as.rule);
+        printf("rule("Alexer_Token_Fmt")", Alexer_Token_Arg(node->as.rule));
             break;
         case NK_NUMBER:
             printf("%f", node->as.number);
@@ -427,6 +429,7 @@ typedef struct {
     size_t capacity;
     size_t count;
     size_t weight_sum;
+    Alexer_Token name;
 } Grammar_Branches;
 
 typedef struct {
@@ -440,7 +443,7 @@ void grammar_print(Grammar grammar) {
     TODO("grammar_print: use the same grammar as the one we parse");
 }
 
-Node *gen_rule(Grammar grammar, size_t rule, int depth);
+Node *gen_rule(Grammar grammar, Alexer_Token rule, int depth);
 
 float rand_float(void) {
     return (float) rand() / (float) RAND_MAX;
@@ -504,12 +507,19 @@ Node *gen_node(Grammar grammar, Node *node, int depth) {
     }
 }
 
-Node *gen_rule(Grammar grammar, size_t rule, int depth) {
+Grammar_Branches *branches_by_name(Grammar *grammar, Alexer_Token rule) {
+    for (size_t i = 0; i < grammar->count; ++i) {
+        if (alexer_token_text_equal(grammar->items[i].name, rule)) {
+            return &grammar->items[i];
+        }
+    }
+    return NULL;
+}
+
+Node *gen_rule(Grammar grammar, Alexer_Token rule, int depth) {
     if (depth <= 0) return NULL;
 
-    assert(rule < grammar.count);
-
-    Grammar_Branches *branches = &grammar.items[rule];
+    Grammar_Branches *branches = branches_by_name(&grammar, rule);
     assert(branches->count > 0);
 
     Node *node = NULL;
@@ -528,7 +538,8 @@ Node *gen_rule(Grammar grammar, size_t rule, int depth) {
     return node;
 }
 
-void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches) {
+void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches, Alexer_Token name) {
+    branches->name = name;
     branches->weight_sum = 0;
     for (size_t i = 0; i < branches->count; ++i) {
         branches->weight_sum += branches->items[i].weight;
@@ -537,17 +548,29 @@ void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches) {
     memset(branches, 0, sizeof(*branches));
 }
 
-int default_grammar(Grammar *grammar) {
+#define SYMBOL(name_cstr) symbol_impl(__FILE__, __LINE__, name_cstr)
+
+Alexer_Token symbol_impl(const char *file, int line, const char *name_cstr) {
+    return (Alexer_Token) {
+        .kind = ALEXER_SYMBOL,
+        .loc = {
+            .file_path = file,
+            .row = line,
+            .col = 0,
+        },
+        .begin = name_cstr,
+        .end = name_cstr + strlen(name_cstr),
+    };
+}
+
+Alexer_Token default_grammar(Grammar *grammar) {
     Grammar_Branches branches = {0};
-    int e = 0;
-    int a = 1;
-    int c = 2;
 
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_triple(node_rule(c), node_rule(c), node_rule(c)),
+        .node = node_triple(node_rule(SYMBOL("c")), node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
         .weight = 1,
     }));
-    grammar_append_branches(grammar, &branches);
+    grammar_append_branches(grammar, &branches, SYMBOL("e"));
 
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_random(),
@@ -573,22 +596,22 @@ int default_grammar(Grammar *grammar) {
                      node_mult(node_t(), node_t()))),
         .weight = 1,
     }));
-    grammar_append_branches(grammar, &branches);
+    grammar_append_branches(grammar, &branches, SYMBOL("a"));
 
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_rule(a),
+        .node = node_rule(SYMBOL("a")),
         .weight = 2,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_add(node_rule(c), node_rule(c)),
+        .node = node_add(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
         .weight = 3,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_mult(node_rule(c), node_rule(c)),
+        .node = node_mult(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
         .weight = 3,
     }));
-    grammar_append_branches(grammar, &branches);
-    return e;
+    grammar_append_branches(grammar, &branches, SYMBOL("c"));
+    return SYMBOL("e");
 }
 
 bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_t level) {
@@ -599,7 +622,7 @@ bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_
 
         case NK_RULE:
         case NK_RANDOM:
-            printf("%s,: %d: ERROR: cannot compile a node that valid only for grammar definitions\n", expr->file, expr->line);
+            printf("%s:%d: ERROR: cannot compile a node that valid only for grammar definitions\n", expr->file, expr->line);
             return false;
 
         case NK_NUMBER: {
@@ -756,7 +779,7 @@ int main(int argc, char **argv) {
         }
 
         Grammar grammar = {0};
-        int entry = default_grammar(&grammar);
+        Alexer_Token entry = default_grammar(&grammar);
 
         srand(seed);
         fprintf(stdout, "[INFO]: SEED: %d\n", seed);
@@ -772,6 +795,7 @@ int main(int argc, char **argv) {
         node_print_ln(f);
 
         Image image = GenImageColor(width, height, BLANK);
+        fprintf(stdout, "[INFO]: Generating image...");
         if (!render_image(image, f)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
@@ -785,7 +809,7 @@ int main(int argc, char **argv) {
         }
 
         Grammar grammar = {0};
-        int entry = default_grammar(&grammar);
+        Alexer_Token entry = default_grammar(&grammar);
 
         srand(seed);
         fprintf(stdout, "[INFO]: SEED: %d\n", seed);

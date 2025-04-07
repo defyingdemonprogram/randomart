@@ -612,7 +612,8 @@ Alexer_Token symbol_impl(const char *file, int line, const char *name_cstr) {
     };
 }
 
-Alexer_Token default_grammar(Grammar *grammar) {
+Alexer_Token default_grammar(Grammar *grammar)
+{
     Grammar_Branches branches = {0};
 
     context_da_append(&branches, ((Grammar_Branch) {
@@ -625,6 +626,11 @@ Alexer_Token default_grammar(Grammar *grammar) {
         .node = node_random(),
         .weight = 1,
     }));
+    context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_rule(SYMBOL("a")),
+        .weight = 2,
+    }));
+    grammar_append_branches(grammar, &branches, SYMBOL("b"));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_x(),
         .weight = 1,
@@ -653,29 +659,16 @@ Alexer_Token default_grammar(Grammar *grammar) {
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_add(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
-        .weight = 4,
-    }));
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_mult(node_rule(SYMBOL("b")), node_rule(SYMBOL("b"))),
-        .weight = 1,
-    }));
-    grammar_append_branches(grammar, &branches, SYMBOL("c"));
-
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_rule(SYMBOL("a")),
-        .weight = 2,
-    }));
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_add(node_rule(SYMBOL("e")), node_rule(SYMBOL("b"))),
         .weight = 3,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_mult(node_rule(SYMBOL("a")), node_rule(SYMBOL("c"))),
+        .node = node_mult(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
         .weight = 3,
     }));
     grammar_append_branches(grammar, &branches, SYMBOL("c"));
     return SYMBOL("e");
 }
+
 
 bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_t level) {
     switch (expr->kind) {
